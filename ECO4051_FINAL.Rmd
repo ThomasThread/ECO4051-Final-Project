@@ -1,0 +1,192 @@
+---
+latex_engine: TinyTex
+author: "Thomas Thread, Peng Fei Wu, Xiaoxuan Gu, Alex Yusuf"
+date: "May 18th, 2023"
+output:
+  pdf_document: default
+  latex_engine: default
+title: "ECO 4051 Final Project - Relationship of Volatility of S&P 500 and of Crude
+  Oil"
+fontsize: 12pt
+indent: yes
+linestretch: 1.5
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tinytex)
+library(dplyr)
+library(tidyquant)
+library(ggplot2)
+library(quantmod)
+library(xts)
+library(rugarch)
+```
+
+
+```{r data, include=FALSE}
+
+
+
+
+# Import the data
+
+
+GSPC       <- getSymbols("^GSPC", from="2000-09-01", to="2023-05-01", auto.assign=FALSE) 
+sp500daily <- 100 * ClCl(GSPC)
+sp500daily <- na.omit(sp500daily)
+names(sp500daily)<-"GSPCRET"
+
+CLF       <- getSymbols("CL=F", from="2000-09-01", to="2023-05-01", auto.assign=FALSE) 
+CLFdaily <- 100 * ClCl(CLF)
+CLFdaily <- na.omit(CLFdaily)
+names(CLFdaily)<-"CLFRET"
+CLF_sd <- rollapply(CLFdaily, 30,sd, na.rm = TRUE)
+CLF_sd <- na.omit(CLF_sd)
+
+
+VIX       <- getSymbols("^VIX", from="2000-09-01", to="2023-05-01", auto.assign=FALSE) 
+VIXdaily <- Ad(VIX)
+VIXdaily <- na.omit(VIXdaily)
+names(VIXdaily)<-"VIX"
+
+
+
+```
+
+```{r, include=FALSE}
+#Now we need unit of analysis to be the same length, so we shorten all xts to match CLF_sd starting at 2000-10-17.
+sp500daily <- sp500daily["2000-10-17/"]
+CLFdaily <- CLFdaily["2000-10-17/"]
+VIXdaily <- VIXdaily["2000-10-17/"]
+
+
+data <- merge(sp500daily, CLFdaily, join="inner")
+data <- merge(data, CLF_sd, join="inner")
+data <- merge(data,VIXdaily , join="inner")
+sp500daily <- data$GSPCRET
+CLFdaily <- data$CLFRET
+CLF_sd <- data$CLFRET.1
+VIXdaily <- data$VIX
+
+```
+## Introduction
+
+
+Our project aims to analyze how the volatility of equities, represented by the S&P 500 index(GSPC) and the CBOE Volatility Index(VIX), relates to crude oil futures(CL). Specifically, we want to explore how predictable volatility is in one asset on the other using Generalized Auto-Regressive Conditional Heteroskedasticity (GARCH) models. Understanding the dynamics of volatility across different assets is crucial in the financial markets as it allows investors and traders to make informed decisions by anticipating potential market movements. 
+
+
+To achieve our objective, we will be constructing two distinct GARCH models incorporating additional regressors in the form of zeta multiplied by the respective asset’s volatility. Additionally, we will employ two control GARCH models without the inclusion of these external regressors to analyze the marginal effect of its inclusion.
+
+
+This study suggests a limited influence of oil shocks on excess stock market returns. However, it highlights the significant effect of oil price volatility on stock market volatility, particularly in the domestic market. Furthermore, the relationship between oil price volatilities and stock markets exhibits a dynamic and time-varying nature, indicating a connectedness between these two markets. These findings underscore the nuanced and intricate nature of the interaction between oil prices and stock market performance. 
+
+
+Our analysis builds upon existing literature and reinforces the findings regarding the relationship between oil prices and stock market performance. In all of our models, except for the third one, "GARCH for GSPC plus zeta*stddev(CL=F)," the t-scores for the estimated coefficients exceeded the critical value at the 1% significance level. This indicates that the coefficients in these models are statistically significant. These results align with previous research, providing further evidence of the influential connection between the variables examined. The robust t-scores lend credibility to our models and support the notion that the included variables play a significant role in explaining the volatility dynamics of the asset.
+
+
+## Survey of the Literature
+
+
+With the first studies investigating the relationship between the assets of oil prices and stock market returns originating from an amalgamation of studies compiled in 1996 by Huang et al, came the question of whether a volatility linkage between the two markets was present. In the studies present in the literature in 1996, researchers had discovered an asymmetric effect on stock market returns from fluctuations in oil prices. Specifically through the study by Mork et al. in 1993, the researchers determined through the use of VAR models and F tests on hypotheses regarding whether oil price fluctuations had effects on real GDP or not and whether they were symmetric, that oil price increases generally held a negative correlation with real GDP for most countries. For oil price decreases however, the coefficients were found to be statistically insignificant, with the exception of a few countries such as the US, Canada, and Japan, where the magnitude of effects were similar to oil price increase effects. 
+
+In more recent times, a handful of studies had been conducted regarding our topic at hand specifically. Within the journal by Stavros et al. in 2018, lies the reports of the static studies in the relationship between oil and stock market volatility along with some more recent ones which evaluate the relationship over different time periods. One of the earliest studies in this topic came from Malik and Ewang in 2009, where they focused on the volatilities of various sectors of the US stock market and crude oil price volatility. This study had found that oil price volatility had positive effects on volatilities in each of the sectors with the exception of the financial and industrial sectors. 
+
+Mensi’s study in 2013 added to Malik and Ewang’s study, throwing an additional focus on WTI crude oil price volatility and Brent, where he discovered positive bidirectional effects in volatility between the S&P 500 and WTI, but only an effect from S&P500 on Brent crude oil price volatility. The impacts of the effects were later studied by Ewing and Malik in 2016 where they focused on the relationship between volatility of S&P 500 and WTI crude prices from 1996 to 2013. From this time frame, they concluded that oil price volatility received stronger effects from S&P 500 volatility than the other way around. These results were received through the use of daily data along with various GARCH models such as VAR-GARCH.
+
+With the static relationship having been studied, Arouri began the research of the relationship’s effects throughout different time periods in 2011, particularly on Gulf Corporation Council (GCC) countries. Arouri observed that a time-varying relationship was present between the volatilities of oil prices and the stock market. In GCC countries, the case appears to be the opposite of the one present in the US, where oil price volatility tends to have a bigger impact on the stock market with more pronounced effects during times of crisis. It was also observed that stock market volatility also had positive effects on oil price volatility, though to a smaller magnitude and the effects diminishing during tranquil periods.
+
+Du and He add to Arouri’s findings, basing their study on risk spillover between the oil and stock market in the US market. In their findings, risk spillovers between the markets were found to be significant and ran positively from stock market volatility to oil market volatility prior to the financial crisis in 2007-2009. Post-financial crisis, they found the trend to have changed, resulting in bidirectional positive risk spillover between the markets. In these time-varying studies, a variety of GARCH models were also used, such as GARCH-BEKK, GARCH-VECH, and others.
+
+## Investigation by Models
+
+To conduct an investigation into whether or not volatility in either GSPC or in CL=F returns is an accurate predictor of future volatility in the other, it is important to both establish how accuracy as a predictor will be measured and what kind of model will be used as the basis of analysis. Using two models where the volatility of one is part of the prediction of the other is key because it enables a directional 
+
+To which model will be used, this investigation is utilizing the Generalized Auto-Regressive Conditional Heteroskedasticity model (GARCH). 
+
+$$\sigma^2_{t} = \omega + \alpha * R_{t-1}^2 + \beta * \sigma^2_{t-1}$$
+
+GARCH incorporates both the squared return of the asset in question and the variance of the previous forecast as it is more agnostic on what behaviors it ‘expects’ of the data compared to the models discussed in this course. The ability to add on external regressors within the predictors is also key in this being the choice of analysis.
+
+To act as our independent variables/models, we will be constructing two different GARCH models with external regressors in the form of zeta * volatility. For the model where VIX is the external regressor, the R-squared is based on CL=F, and for the model where the standard deviation of returns of CL=F over a 30 day window is the zeta, the R-squared is based on CL=F.
+
+#### Predicting Model 3: $\sigma^2_{t}$ of CL=F
+
+$$\sigma^2_{t} = \omega + \alpha * R_{t-1}^2 + \beta * \sigma^2_{t-1} + \zeta * VIX_{t-1}$$
+
+#### Predicting Model 4: $\sigma^2_{t}$ of GSPC
+
+$$\sigma^2_{t} = \omega + \alpha * R_{t-1}^2 + \beta * \sigma^2_{t-1} + \zeta *\sigma_{CLF, w = 30, t}$$
+
+As our control against which the fitness will be judged, two GARCH without the added external regressors will be used. One will be using CL=F to predict the future variance of CL=F, the other will be using GSPC to predict the future variance of GSPC. This control allows for the marginal effect of the inclusion of the external regressors to be analyzed.
+
+```{r garchmodels, echo=FALSE}
+#Here we will build and display the omega, alpha, beta, gamma of each model,
+
+#Model 1, GARCH for GSPC
+model_GSPC = ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1, 1)), mean.model = list(armaOrder = c(0, 0)))
+
+fit_GSPC = ugarchfit(spec = model_GSPC, data = sp500daily)
+
+
+#Model 2, GARCH for CL=F
+model_CLF = ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1, 1)), mean.model = list(armaOrder = c(0, 0)))
+
+fit_CLF = ugarchfit(spec = model_CLF, data = CLFdaily, solver = "hybrid")
+#Must change solver.control as the base state was seeing solver fail to converge, must discuss in Data section what this mean.
+
+
+#Model 3, GARCH for GSPC plus gamma*stddev(CL=F)
+model_GSPCgammaStdDevCLF = ugarchspec(
+            variance.model = list(model = "sGARCH", garchOrder = c(1, 1), external.regressors = CLF_sd), mean.model = list(armaOrder = c(0, 0),external.regressors = CLF_sd))
+
+fit_GSPCgammaStdDevCLF = ugarchfit(spec = model_GSPCgammaStdDevCLF, data = sp500daily, solver = "hybrid")
+
+
+#Model 4, GARCH for CL=F plus gamma*VIX
+model_CLFgammaVIX = ugarchspec(
+            variance.model = list(model = "sGARCH", garchOrder = c(1, 1), external.regressors = VIXdaily), mean.model = list(armaOrder = c(0, 0),external.regressors = VIXdaily))
+
+fit_CLFgammaVIX = ugarchfit(spec = model_CLFgammaVIX, data = CLFdaily, solver = "hybrid")
+
+```
+
+```{r, figures-side, fig.show='hold',echo=FALSE}
+t1 <- knitr::kable(data.frame(Estimate=coef(fit_GSPC), SE=fit_GSPC@fit$tval),caption = "GARCH for GSPC")
+t2 <- knitr::kable(data.frame(Estimate=coef(fit_CLF), SE=fit_CLF@fit$tval),caption = "GARCH for CL=F")
+t3 <- knitr::kable(data.frame(Estimate=coef(fit_GSPCgammaStdDevCLF), SE=fit_GSPCgammaStdDevCLF@fit$tval),caption = "GARCH for GSPC --- External Regressor sdCLF")
+t4 <- knitr::kable(data.frame(Estimate=coef(fit_CLFgammaVIX), SE=fit_CLFgammaVIX@fit$tval),caption = "GARCH for CL=F --- External Regressor VIX")
+t1
+t2
+t3
+t4
+```
+
+
+## Data
+
+Drawing the three tickers for the data: GSPC, CL=F, and VIX posed unique challenges. The limit of available data on CL=F, only starting in September of 2000, limiting the total time period of analysis, especially in blunting the presence of the market crash and recession beginning in March of 2000. Furthermore the generating of a 30-day standard deviation volatility measure on CL=F returns further limited exposure to this important period of increased volatility.
+
+Additionally it was necessary to properly merge the data (utilized an inner-join merge), the total time series of GSPC returns, CL=F returns, std(CL=F returns), and VIX had a significant number of rows where one or more of the time series was missing an input. This could be due to that stock being not traded that day. In all approximately 100 points of the time series were merged away, and the total number of days to calculate the models is 5586.
+
+
+
+## Empirical Application
+
+The primary takeaway in analyzing the models is one of directionality. It is clear that VIX has a far greater impact on the future volatility of CL=F than the standard deviation of CL=F has on GSPC. Neither of the external regressors for Model 3 are statistically significant (testing that the absolute value of the t-value is greater than 2.58, or the t-stat for a 99% confidence interval), and additionally they are miniscule values. 
+
+The presence of statistical significance in including VIX as external regressors is noteworthy, though it does not automatically presume economic significance. 
+
+It is noteworthy that neither of the models predicting the volatility of CL=F are as strongly mean reverting as the models predicting for volatility of GSPC, with smaller sums of alpha and beta
+
+One fundamental assumption in the data sourcing strategy was that the standard deviation of CL=F returns is functionally comparable to VIX in terms of effect on the volatility of other assets. The possibility that this was not the ideal choice to conduct this analysis is present, but it was not a prudent use of time on this project to apply the limited capacity of the group on this point.
+
+Finally is the issue of the mean model and the inclusion of the external regressors in it. This course was taken to include the additional regressors within the conditional mean in calculation, and to ensure that the variable models ran smoothly. The relatively small size of the mxreg1 for each model compared to mu suggests there was only a small impact on the conditional mean.
+
+
+## Conclusion
+
+The study in the literature states that there is a significant effect of oil price volatility on stock market volatility and defines a relationship between the two markets which was also seen in this study when analyzing  the volatility of equities, represented by the S&P 500 index (GSPC) and the CBOE Volatility Index(VIX), relates to crude oil futures(CL). This study utilized four Generalized Auto-Regressive Conditional Heteroskedasticity (GARCH) models which all varied in results when compared to the models used in the literature. By highlighting major differences, it was found that the third model which is used in the analysis for the standard deviation of returns for CL=F is the significant model at 99% confidence interval. This simply means the level of volatility is significantly different from zero and the VAR-Garch model used in the literature which focused on the relationship between volatility of S&P 500 and WTI crude prices from 1996 to 2013. In conclusion; VIX used in the last model is statistically significant and has a greater impact on the volatility of CL = F futures than on standard deviation of CL=F when analyzing the S&p 500 index. This mostly confirms with the literature used which concluded the stronger positive effect between oil price volatility and S&P 500 volatility. 
+
+
+
